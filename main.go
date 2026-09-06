@@ -3,7 +3,38 @@ package main
 import (
 	"fmt"
 	"os"
+
+	tea "charm.land/bubbletea/v2"
 )
+
+type model struct {
+	content string
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "q":
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m model) View() tea.View {
+	v := tea.NewView(m.content)
+	v.AltScreen = true
+	return v
+}
+
+func initModel(content string) model {
+	return model{content}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -16,5 +47,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Print(string(content))
+
+	p := tea.NewProgram(initModel(string(content)))
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 }
