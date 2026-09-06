@@ -27,7 +27,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	return tea.NewView(m.content)
+	v := tea.NewView(m.content)
+	v.AltScreen = true
+	return v
 }
 
 func initModel(content string) model {
