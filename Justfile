@@ -1,5 +1,5 @@
 # Run all project checks
-check: fmt-check vet test
+check: fmt-check tidy-check vet test
 
 # Check Go formatting without modifying files
 fmt-check:
@@ -12,6 +12,10 @@ fmt-check:
       echo "$unformatted_files"
       exit 1
     fi
+
+# Check that go.mod and go.sum are tidy
+tidy-check:
+    go mod tidy --diff
 
 # Format Go source files
 fmt:
@@ -28,3 +32,7 @@ test:
 # Run the editor with a Markdown file
 run file:
     go run . {{ quote(file) }}
+
+# Build the project
+build:
+    go build -o nmd .
