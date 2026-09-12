@@ -24,6 +24,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Check formatting
+        id: format
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -33,7 +34,22 @@ jobs:
           fi
 
       - name: Run vet
+        id: vet
         run: go vet ./...
 
       - name: Run tests
+        id: test
         run: go test ./...
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Go checks"
+            echo
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| Formatting | ${{ steps.format.outcome }} |"
+            echo "| Vet | ${{ steps.vet.outcome }} |"
+            echo "| Tests | ${{ steps.test.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

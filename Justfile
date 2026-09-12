@@ -27,4 +27,4 @@ test:
 
 # Run the editor with a Markdown file
 run file:
-  go run . {{quote(file)}}
+    go run . {{ quote(file) }}
