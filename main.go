@@ -5,10 +5,13 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 type model struct {
 	content string
+	width   int
+	height  int
 }
 
 func (m model) Init() tea.Cmd {
@@ -22,18 +25,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q":
 			return m, tea.Quit
 		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	}
 	return m, nil
 }
 
 func (m model) View() tea.View {
-	v := tea.NewView(m.content)
+	leftWidth := m.width / 2
+	rightWidth := m.width - leftWidth
+
+	leftPane := lipgloss.NewStyle().
+		Width(leftWidth).
+		Height(m.height).
+		Render(m.content)
+
+	rightPane := lipgloss.NewStyle().
+		Width(rightWidth).
+		Height(m.height).
+		Border(lipgloss.NormalBorder()).
+		Render("")
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+
+	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
 }
 
 func initModel(content string) model {
-	return model{content}
+	return model{
+		content: content,
+	}
 }
 
 func main() {
