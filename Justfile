@@ -24,3 +24,7 @@ vet:
 # Run tests
 test:
     go test ./...
+
+# Run the editor with a Markdown file
+run file:
+  go run . {{quote(file)}}
