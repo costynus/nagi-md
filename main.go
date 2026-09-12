@@ -5,6 +5,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	glamour "charm.land/glamour/v2"
 	lipgloss "charm.land/lipgloss/v2"
 )
 
@@ -41,11 +42,16 @@ func (m model) View() tea.View {
 		Height(m.height).
 		Render(m.content)
 
-	rightPane := lipgloss.NewStyle().
+	rightPaneStyle := lipgloss.NewStyle().
 		Width(rightWidth).
 		Height(m.height).
-		Border(lipgloss.NormalBorder()).
-		Render("")
+		Border(lipgloss.NormalBorder())
+	previewWidth := max(1, rightWidth-rightPaneStyle.GetHorizontalFrameSize())
+	rendered, err := renderMarkdown(m.content, previewWidth)
+	if err != nil {
+		rendered = fmt.Sprintf("Error rendering Markdown: %v", err)
+	}
+	rightPane := rightPaneStyle.Render(rendered)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
@@ -58,6 +64,21 @@ func initModel(content string) model {
 	return model{
 		content: content,
 	}
+}
+
+func renderMarkdown(content string, width int) (string, error) {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("dark"),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create Markdown renderer: %w", err)
+	}
+	rendered, err := renderer.Render(content)
+	if err != nil {
+		return "", fmt.Errorf("render Markdown: %w", err)
+	}
+	return rendered, nil
 }
 
 func main() {
