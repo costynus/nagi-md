@@ -53,3 +53,5 @@ jobs:
             echo "| Vet | ${{ steps.vet.outcome }} |"
             echo "| Tests | ${{ steps.test.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=Go checks::Formatting: ${{ steps.format.outcome }}, Vet: ${{ steps.vet.outcome }}, Tests: ${{ steps.test.outcome }}"
