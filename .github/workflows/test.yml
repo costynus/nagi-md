@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - trunk
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go checks and tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        id: format
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run vet
+        id: vet
+        run: go vet ./...
+
+      - name: Run tests
+        id: test
+        run: go test ./...
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "## Go checks"
+            echo
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| Formatting | ${{ steps.format.outcome }} |"
+            echo "| Vet | ${{ steps.vet.outcome }} |"
+            echo "| Tests | ${{ steps.test.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=Go checks::Formatting: ${{ steps.format.outcome }}, Vet: ${{ steps.vet.outcome }}, Tests: ${{ steps.test.outcome }}"
