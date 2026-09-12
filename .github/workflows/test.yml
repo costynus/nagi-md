@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Go tests
+    name: Go checks and tests
     runs-on: ubuntu-latest
 
     steps:
