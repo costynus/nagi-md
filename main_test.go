@@ -254,6 +254,83 @@ func TestSaveNoteWritesContent(t *testing.T) {
 	}
 }
 
+func TestSaveNoteFollowsSymbolicLink(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target.md")
+	link := filepath.Join(directory, "link.md")
+
+	if err := os.WriteFile(target, []byte("Old content"), 0o644); err != nil {
+		t.Fatalf("create target note: %v", err)
+	}
+
+	if err := os.Symlink("target.md", link); err != nil {
+		t.Skipf("symbolic links are not supported: %v", err)
+	}
+
+	const content = "New content"
+	savedMsg, ok := saveNote(link, content)().(noteSavedMsg)
+	if !ok {
+		t.Fatal("save command did not return noteSavedMsg")
+	}
+	if savedMsg.err != nil {
+		t.Fatalf("save through symbolic link: %v", savedMsg.err)
+	}
+
+	targetContent, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target note: %v", err)
+	}
+	if got := string(targetContent); got != content {
+		t.Errorf("target content = %q, want %q", got, content)
+	}
+
+	linkInfo, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("lstat symbolic link: %v", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Error("saving replaced the symbolic link")
+	}
+}
+
+func TestSaveNotePreservesSpecialModeBits(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(filename, []byte("Old content"), 0o640); err != nil {
+		t.Fatalf("create original note: %v", err)
+	}
+
+	wantMode := os.FileMode(0o640) | os.ModeSetgid
+	if err := os.Chmod(filename, wantMode); err != nil {
+		t.Skipf("special mode bits are not supported: %v", err)
+	}
+
+	originalInfo, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("stat original note: %v", err)
+	}
+	if originalInfo.Mode()&os.ModeSetgid == 0 {
+		t.Skip("filesystem did not retain the setgid bit")
+	}
+
+	savedMsg, ok := saveNote(filename, "New content")().(noteSavedMsg)
+	if !ok {
+		t.Fatal("save command did not return noteSavedMsg")
+	}
+	if savedMsg.err != nil {
+		t.Fatalf("save note: %v", savedMsg.err)
+	}
+
+	savedInfo, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("stat saved note: %v", err)
+	}
+
+	const chmodBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	if got, want := savedInfo.Mode()&chmodBits, originalInfo.Mode()&chmodBits; got != want {
+		t.Errorf("saved file mode = %v, want %v", got, want)
+	}
+}
+
 func TestSaveResultUpdatesDirtyState(t *testing.T) {
 	tests := []struct {
 		name          string

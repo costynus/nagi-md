@@ -369,11 +369,16 @@ func (m *model) startSave(content string) tea.Cmd {
 }
 
 func writeNoteAtomically(filename, content string) error {
-	fileInfo, err := os.Stat(filename)
+	resolvedFilename, err := filepath.EvalSymlinks(filename)
+	if err != nil {
+		return fmt.Errorf("resolve note path: %w", err)
+	}
+
+	fileInfo, err := os.Stat(resolvedFilename)
 	if err != nil {
 		return fmt.Errorf("stat file: %w", err)
 	}
-	directory := filepath.Dir(filename)
+	directory := filepath.Dir(resolvedFilename)
 	tempFile, err := os.CreateTemp(directory, "nmd_temp_*.md")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -388,7 +393,8 @@ func writeNoteAtomically(filename, content string) error {
 		return fmt.Errorf("write to temp file: %w", err)
 	}
 
-	if err := tempFile.Chmod(fileInfo.Mode().Perm()); err != nil {
+	const chmodBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	if err := tempFile.Chmod(fileInfo.Mode() & chmodBits); err != nil {
 		return fmt.Errorf("preserve file permissions: %w", err)
 	}
 
@@ -400,7 +406,7 @@ func writeNoteAtomically(filename, content string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Rename(tempFileName, filename); err != nil {
+	if err := os.Rename(tempFileName, resolvedFilename); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
 	}
 
