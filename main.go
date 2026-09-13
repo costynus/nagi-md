@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -367,12 +368,50 @@ func (m *model) startSave(content string) tea.Cmd {
 	return saveNote(m.filename, content)
 }
 
+func writeNoteAtomically(filename, content string) error {
+	fileInfo, err := os.Stat(filename)
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	directory := filepath.Dir(filename)
+	tempFile, err := os.CreateTemp(directory, "nmd_temp_*.md")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tempFileName := tempFile.Name()
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFileName)
+	}()
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		return fmt.Errorf("write to temp file: %w", err)
+	}
+
+	if err := tempFile.Chmod(fileInfo.Mode().Perm()); err != nil {
+		return fmt.Errorf("preserve file permissions: %w", err)
+	}
+
+	if err := tempFile.Sync(); err != nil {
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tempFileName, filename); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+
+	return nil
+}
+
 func saveNote(filename, content string) tea.Cmd {
 	return func() tea.Msg {
-		err := os.WriteFile(filename, []byte(content), 0o644)
 		return noteSavedMsg{
 			content: content,
-			err:     err,
+			err:     writeNoteAtomically(filename, content),
 		}
 	}
 }

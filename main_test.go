@@ -197,7 +197,17 @@ func TestAutosaveTickStartsSaveOnlyWhenDirty(t *testing.T) {
 }
 
 func TestSaveNoteWritesContent(t *testing.T) {
-	filename := filepath.Join(t.TempDir(), "test_note.md")
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "test_note.md")
+	if err := os.WriteFile(filename, []byte("Old content"), 0o640); err != nil {
+		t.Fatalf("create original note: %v", err)
+	}
+
+	originalInfo, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("stat original note: %v", err)
+	}
+
 	const content = "# Hello\n\nAutosaved content."
 
 	cmd := saveNote(filename, content)
@@ -223,6 +233,24 @@ func TestSaveNoteWritesContent(t *testing.T) {
 
 	if got := string(savedContent); got != content {
 		t.Errorf("saved file content = %q, want %q", got, content)
+	}
+
+	savedInfo, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("stat saved note: %v", err)
+	}
+
+	if got, want := savedInfo.Mode().Perm(), originalInfo.Mode().Perm(); got != want {
+		t.Errorf("saved file permissions = %v, want %v", got, want)
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read note directory: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Errorf("note directory contains %d files, want 1", len(entries))
 	}
 }
 
@@ -276,6 +304,9 @@ func TestSaveResultUpdatesDirtyState(t *testing.T) {
 func TestQuitSavesDirtyNoteBeforeExiting(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "note.md")
 	const content = "Changed content"
+	if err := os.WriteFile(filename, []byte("Original content"), 0o644); err != nil {
+		t.Fatalf("create original note: %v", err)
+	}
 
 	m := initModel(filename, content)
 	m.dirty = true
