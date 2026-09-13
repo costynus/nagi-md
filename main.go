@@ -149,7 +149,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editor.SetWidth(leftWidth)
 		m.preview.SetWidth(rightWidth)
 
-		paneHeight := max(1, m.height-1)
+		paneHeight := m.height
+		if m.height >= 2 {
+			paneHeight--
+		}
+		paneHeight = max(0, paneHeight)
 
 		m.editor.SetHeight(paneHeight)
 		m.preview.SetHeight(paneHeight)
@@ -227,17 +231,27 @@ func (m model) View() tea.View {
 		status = fmt.Sprintf("Save failed: %v", m.saveErr)
 	}
 
-	statusLine := lipgloss.NewStyle().
-		Width(m.width).
-		Height(1).
-		MaxHeight(1).
-		Render(status)
+	content := panes
+	if m.height >= 2 {
+		statusLine := lipgloss.NewStyle().
+			Width(m.width).
+			Height(1).
+			MaxHeight(1).
+			Render(status)
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		panes,
-		statusLine,
-	)
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			panes,
+			statusLine,
+		)
+	}
+	if m.height <= 0 {
+		content = ""
+	} else {
+		content = lipgloss.NewStyle().
+			MaxHeight(m.height).
+			Render(content)
+	}
 
 	v := tea.NewView(content)
 	v.AltScreen = true

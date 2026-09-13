@@ -20,6 +20,7 @@ func TestViewFillsTerminal(t *testing.T) {
 		{name: "even width", width: 80, height: 24},
 		{name: "odd width", width: 81, height: 24},
 		{name: "smaller terminal", width: 40, height: 10},
+		{name: "single row terminal", width: 40, height: 1},
 	}
 
 	for _, tt := range tests {
