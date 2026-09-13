@@ -84,7 +84,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wheelBlocked = false
 
 		switch msg.String() {
+		case "esc":
+			if m.editor.HasSelection() {
+				m.editor.ClearSelection()
+				return m, nil
+			}
 		case "ctrl+c":
+			if m.editor.HasSelection() {
+				selection := m.editor.CopySelection()
+				m.editor.ClearSelection()
+				return m, selection
+			}
 			if m.saving {
 				m.quitAfterSave = true
 				return m, nil
@@ -95,6 +105,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+
+		leftWidth := m.width / 2
+		paneHeight := m.height
+		if m.height >= 2 {
+			paneHeight--
+		}
+
+		clickedInsideEditor :=
+			mouse.Button == tea.MouseLeft &&
+				mouse.X >= 0 && mouse.X < leftWidth &&
+				mouse.Y >= 0 && mouse.Y < paneHeight
+
+		if !clickedInsideEditor {
+			return m, nil
+		}
+
+		m.editor.BeginSelection(mouse.X, mouse.Y)
+		return m, nil
+
+	case tea.MouseMotionMsg:
+		mouse := msg.Mouse()
+
+		if mouse.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		leftWidth := m.width / 2
+		paneHeight := m.height
+		if m.height >= 2 {
+			paneHeight--
+		}
+		if leftWidth <= 0 || paneHeight <= 0 {
+			return m, nil
+		}
+
+		x := min(max(mouse.X, 0), leftWidth-1)
+		y := min(max(mouse.Y, 0), paneHeight-1)
+
+		m.editor.ExtendSelection(x, y)
+		return m, nil
+
+	case tea.MouseReleaseMsg:
+		m.editor.EndSelection()
+		return m, nil
+
 	case tea.MouseWheelMsg:
 		if msg.Button != tea.MouseWheelDown && msg.Button != tea.MouseWheelUp {
 			return m, nil
