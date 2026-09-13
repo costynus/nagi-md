@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
@@ -16,27 +18,81 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 )
 
-type model struct {
-	editor  textarea.Model
-	width   int
-	height  int
-	preview viewport.Model
+type (
+	model struct {
+		filename      string
+		saving        bool
+		dirty         bool
+		saveErr       error
+		quitAfterSave bool
 
-	wheelDirection tea.MouseButton
-	wheelBlocked   bool
-}
+		editor  textarea.Model
+		width   int
+		height  int
+		preview viewport.Model
+
+		wheelDirection tea.MouseButton
+		wheelBlocked   bool
+	}
+
+	noteSavedMsg struct {
+		content string
+		err     error
+	}
+
+	autosaveTickMsg struct{}
+)
 
 func (m model) Init() tea.Cmd {
-	return cursor.Blink
+	return tea.Batch(
+		cursor.Blink,
+		scheduleAutosave(),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case noteSavedMsg:
+		m.saving = false
+		if msg.err != nil {
+			m.saveErr = msg.err
+			m.dirty = true
+			m.quitAfterSave = false
+			return m, nil
+		}
+
+		m.saveErr = nil
+		m.dirty = m.editor.Value() != msg.content
+
+		if m.quitAfterSave {
+			if m.dirty {
+				return m, m.startSave(m.editor.Value())
+			}
+			return m, tea.Quit
+		}
+		return m, nil
+	case autosaveTickMsg:
+		nextTick := scheduleAutosave()
+		if !m.dirty || m.saving {
+			return m, nextTick
+		}
+		return m, tea.Batch(
+			nextTick,
+			m.startSave(m.editor.Value()),
+		)
 	case tea.KeyPressMsg:
 		m.wheelBlocked = false
 
 		switch msg.String() {
 		case "ctrl+c":
+			if m.saving {
+				m.quitAfterSave = true
+				return m, nil
+			}
+			if m.dirty {
+				m.quitAfterSave = true
+				return m, m.startSave(m.editor.Value())
+			}
 			return m, tea.Quit
 		}
 	case tea.MouseWheelMsg:
@@ -92,10 +148,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rightWidth := m.width - leftWidth
 
 		m.editor.SetWidth(leftWidth)
-		m.editor.SetHeight(m.height)
-
 		m.preview.SetWidth(rightWidth)
-		m.preview.SetHeight(m.height)
+
+		paneHeight := m.height
+		if m.height >= 2 {
+			paneHeight--
+		}
+		paneHeight = max(0, paneHeight)
+
+		m.editor.SetHeight(paneHeight)
+		m.preview.SetHeight(paneHeight)
 
 		previewWidth := max(1, rightWidth-m.preview.Style.GetHorizontalFrameSize())
 		rendered, err := renderMarkdown(m.editor.Value(), previewWidth)
@@ -149,15 +211,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else if contentChanged || scrollChanged {
 		m.syncPreviewScroll()
 	}
+	if contentChanged {
+		m.dirty = true
+	}
 	return m, editorCmd
 }
 
 func (m model) View() tea.View {
 	leftPane := m.editor.View()
-
 	rightPane := m.preview.View()
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+	panes := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		leftPane,
+		rightPane,
+	)
+
+	status := ".nagi::md"
+	if m.saveErr != nil {
+		status = fmt.Sprintf("Save failed: %v", m.saveErr)
+	}
+
+	content := panes
+	if m.height >= 2 {
+		statusLine := lipgloss.NewStyle().
+			Width(m.width).
+			Height(1).
+			MaxHeight(1).
+			Render(status)
+
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			panes,
+			statusLine,
+		)
+	}
+	if m.height <= 0 {
+		content = ""
+	} else {
+		content = lipgloss.NewStyle().
+			MaxHeight(m.height).
+			Render(content)
+	}
 
 	v := tea.NewView(content)
 	v.AltScreen = true
@@ -182,7 +277,7 @@ func (m *model) syncPreviewScroll() {
 	m.preview.SetYOffset(int(math.Round(scrollPercent * float64(maxOffset))))
 }
 
-func initModel(content string) model {
+func initModel(filename, content string) model {
 	editor := textarea.New()
 	editor.Prompt = ""
 	editor.MaxHeight = 0 // No limit on height
@@ -195,8 +290,9 @@ func initModel(content string) model {
 		Border(lipgloss.NormalBorder())
 
 	return model{
-		editor:  editor,
-		preview: preview,
+		filename: filename,
+		editor:   editor,
+		preview:  preview,
 	}
 }
 
@@ -259,6 +355,73 @@ func filterBlockedWheel(current tea.Model, msg tea.Msg) tea.Msg {
 	return msg
 }
 
+const autosaveInterval = 500 * time.Millisecond
+
+func scheduleAutosave() tea.Cmd {
+	return tea.Tick(autosaveInterval, func(time.Time) tea.Msg {
+		return autosaveTickMsg{}
+	})
+}
+
+func (m *model) startSave(content string) tea.Cmd {
+	m.saving = true
+	return saveNote(m.filename, content)
+}
+
+func writeNoteAtomically(filename, content string) error {
+	resolvedFilename, err := filepath.EvalSymlinks(filename)
+	if err != nil {
+		return fmt.Errorf("resolve note path: %w", err)
+	}
+
+	fileInfo, err := os.Stat(resolvedFilename)
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	directory := filepath.Dir(resolvedFilename)
+	tempFile, err := os.CreateTemp(directory, "nmd_temp_*.md")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tempFileName := tempFile.Name()
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFileName)
+	}()
+
+	if _, err := tempFile.WriteString(content); err != nil {
+		return fmt.Errorf("write to temp file: %w", err)
+	}
+
+	const chmodBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	if err := tempFile.Chmod(fileInfo.Mode() & chmodBits); err != nil {
+		return fmt.Errorf("preserve file permissions: %w", err)
+	}
+
+	if err := tempFile.Sync(); err != nil {
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tempFileName, resolvedFilename); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+
+	return nil
+}
+
+func saveNote(filename, content string) tea.Cmd {
+	return func() tea.Msg {
+		return noteSavedMsg{
+			content: content,
+			err:     writeNoteAtomically(filename, content),
+		}
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: nmd <file>")
@@ -272,7 +435,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		initModel(string(content)),
+		initModel(filename, string(content)),
 		tea.WithFilter(filterBlockedWheel),
 	)
 	if _, err := p.Run(); err != nil {
