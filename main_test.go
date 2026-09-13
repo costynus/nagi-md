@@ -524,3 +524,151 @@ func TestSaveFailureRemainsVisibleAndCancelsQuit(t *testing.T) {
 		t.Error("save failure is not visible in the view")
 	}
 }
+
+func TestMouseClickMovesEditorCursor(t *testing.T) {
+	m := initModel("note.md", "Hello\nWorld")
+
+	updated, _ := m.Update(tea.WindowSizeMsg{
+		Width:  80,
+		Height: 24,
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      6,
+		Y:      1,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(model)
+
+	if got := m.editor.Line(); got != 1 {
+		t.Errorf("cursor line = %d, want 1", got)
+	}
+
+	if got := m.editor.Column(); got != 3 {
+		t.Errorf("cursor column = %d, want 3", got)
+	}
+}
+
+func TestMouseClickOutsideEditorDoesNotMoveCursor(t *testing.T) {
+	m := initModel("", "hello\nworld")
+
+	updated, _ := m.Update(tea.WindowSizeMsg{
+		Width:  80,
+		Height: 24,
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      60,
+		Y:      1,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(model)
+
+	if got := m.editor.Line(); got != 0 {
+		t.Errorf("cursor line = %d, want 0", got)
+	}
+
+	if got := m.editor.Column(); got != 0 {
+		t.Errorf("cursor column = %d, want 0", got)
+	}
+}
+
+func TestMouseDragSelectsText(t *testing.T) {
+	m := initModel("", "Hello World")
+
+	updated, _ := m.Update(tea.WindowSizeMsg{
+		Width:  80,
+		Height: 24,
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.MouseClickMsg{
+		X:      3,
+		Y:      0,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.MouseMotionMsg{
+		X:      8,
+		Y:      0,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(model)
+
+	updated, _ = m.Update(tea.MouseReleaseMsg{
+		X:      8,
+		Y:      0,
+		Button: tea.MouseLeft,
+	})
+	m = updated.(model)
+
+	if !m.editor.HasSelection() {
+		t.Fatal("mouse drag did not create a selection")
+	}
+
+	if got := m.editor.SelectedText(); got != "Hello" {
+		t.Errorf("selected text = %q, want %q", got, "Hello")
+	}
+}
+
+func TestEscapeClearsMouseSelection(t *testing.T) {
+	m := initModel("", "Hello World")
+
+	m.editor.BeginSelection(3, 0)
+	m.editor.ExtendSelection(8, 0)
+	m.editor.EndSelection()
+
+	if !m.editor.HasSelection() {
+		t.Fatal("expected active selection before pressing escape")
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{
+		Code: tea.KeyEscape,
+	})
+	m = updated.(model)
+
+	if m.editor.HasSelection() {
+		t.Error("escape did not clear selection")
+	}
+
+	if got := m.editor.Value(); got != "Hello World" {
+		t.Errorf("editor content = %q, want %q", got, "Hello World")
+	}
+
+	if m.dirty {
+		t.Error("clearing selection incorrectly marked note dirty")
+	}
+}
+
+func TestCtrlCCopiesAndClearsSelection(t *testing.T) {
+	m := initModel("", "Hello World")
+
+	m.editor.BeginSelection(3, 0)
+	m.editor.ExtendSelection(8, 0)
+	m.editor.EndSelection()
+
+	if !m.editor.HasSelection() {
+		t.Fatal("expected selection before copying")
+	}
+
+	updated, cmd := m.Update(tea.KeyPressMsg{
+		Code: 'c',
+		Mod:  tea.ModCtrl,
+	})
+	m = updated.(model)
+
+	if cmd == nil {
+		t.Fatal("ctrl+c did not return a copy command")
+	}
+
+	if m.editor.HasSelection() {
+		t.Error("ctrl+c did not clear selection")
+	}
+
+	if m.quitAfterSave {
+		t.Error("ctrl+c attempted to quit while copying selection")
+	}
+}
