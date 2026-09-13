@@ -193,7 +193,7 @@ func initModel(content string) model {
 
 func mayChangeEditorContent(msg tea.Msg, keyMap textarea.KeyMap) bool {
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
+	case tea.MouseMsg, cursor.BlinkMsg:
 		return false
 	case tea.KeyPressMsg:
 		return msg.Text != "" ||
