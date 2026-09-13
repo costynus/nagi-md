@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 
+	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
@@ -24,7 +25,7 @@ type model struct {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return cursor.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -76,11 +77,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch {
-		case currentOffset > previousOffset:
-			m.preview.ScrollDown(currentOffset - previousOffset)
-		case currentOffset < previousOffset:
-			m.preview.ScrollUp(previousOffset - currentOffset)
+		if currentOffset != previousOffset {
+			m.syncPreviewScroll()
 		}
 
 		return m, nil
@@ -111,7 +109,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		previousContent = m.editor.Value()
 	}
 
-	previewWasAtBottom := m.preview.AtBottom()
+	editorWasAtBottom := mayChangeContent && m.editor.ScrollYOffset() > 0 && m.editor.ScrollPercent() >= 1
 	previousScrollOffset := m.editor.ScrollYOffset()
 
 	updatedEditor, editorCmd := m.editor.Update(msg)
@@ -137,7 +135,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.preview.SetContent(rendered)
 	}
-	if contentChanged && previewWasAtBottom {
+	if contentChanged && editorWasAtBottom {
 		m.preview.GotoBottom()
 	} else if contentChanged || scrollChanged {
 		m.syncPreviewScroll()
