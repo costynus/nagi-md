@@ -60,7 +60,7 @@ func TestRenderMarkdown(t *testing.T) {
 	}
 }
 
-func TestPreviewScrollsWithinTerminalHeight(t *testing.T) {
+func TestEditorAndPreviewScrollTogether(t *testing.T) {
 	const (
 		width  = 80
 		height = 10
@@ -81,10 +81,70 @@ func TestPreviewScrollsWithinTerminalHeight(t *testing.T) {
 		t.Errorf("initial preview Y offset = %d, want 0", m.preview.YOffset())
 	}
 
-	updateModel, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	pageDown := tea.KeyPressMsg{Code: tea.KeyPgDown}
+	updateModel, _ := m.Update(pageDown)
 	m = updateModel.(model)
+	updateModel, _ = m.Update(pageDown)
+	m = updateModel.(model)
+
+	if m.editor.ScrollYOffset() == 0 {
+		t.Error("editor did not scroll down")
+	}
 
 	if m.preview.YOffset() == 0 {
 		t.Error("preview did not scroll down")
+	}
+}
+
+func TestEditingUpdatesPreview(t *testing.T) {
+	m := initModel("Hello")
+
+	updatedModel, _ := m.Update(tea.WindowSizeMsg{
+		Width:  80,
+		Height: 24,
+	})
+	m = updatedModel.(model)
+
+	updatedModel, _ = m.Update(tea.KeyPressMsg{
+		Code: 'X',
+		Text: "X",
+	})
+	m = updatedModel.(model)
+
+	if got := m.editor.Value(); got != "XHello" {
+		t.Errorf("editor value = %q, want %q", got, "XHello")
+	}
+
+	if !strings.Contains(m.preview.GetContent(), "XHello") {
+		t.Error("preview was not updated after inserting text")
+	}
+
+	updatedModel, _ = m.Update(tea.KeyPressMsg{
+		Code: tea.KeyBackspace,
+	})
+	m = updatedModel.(model)
+
+	if got := m.editor.Value(); got != "Hello" {
+		t.Errorf("editor value after deletion = %q, want %q", got, "Hello")
+	}
+
+	if strings.Contains(m.preview.GetContent(), "XHello") {
+		t.Error("preview was not updated after deleting text")
+	}
+}
+
+func TestFilterBlockedWheel(t *testing.T) {
+	m := initModel("")
+	m.wheelBlocked = true
+	m.wheelDirection = tea.MouseWheelDown
+
+	down := tea.MouseWheelMsg{Button: tea.MouseWheelDown}
+	if got := filterBlockedWheel(m, down); got != nil {
+		t.Error("blocked wheel direction was not filtered")
+	}
+
+	up := tea.MouseWheelMsg{Button: tea.MouseWheelUp}
+	if got := filterBlockedWheel(m, up); got == nil {
+		t.Error("opposite wheel direction was filtered")
 	}
 }
