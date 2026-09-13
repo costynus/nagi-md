@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/key"
@@ -109,7 +111,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		previousContent = m.editor.Value()
 	}
 
-	editorWasAtBottom := mayChangeContent && m.editor.ScrollYOffset() > 0 && m.editor.ScrollPercent() >= 1
+	editorWasAtEnd := false
+	if mayChangeContent {
+		lastLineStart := strings.LastIndexByte(previousContent, '\n') + 1
+		lastLine := previousContent[lastLineStart:]
+
+		editorWasAtEnd = m.editor.Line() == m.editor.LineCount()-1 &&
+			m.editor.Column() == utf8.RuneCountInString(lastLine)
+	}
 	previousScrollOffset := m.editor.ScrollYOffset()
 
 	updatedEditor, editorCmd := m.editor.Update(msg)
@@ -135,7 +144,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.preview.SetContent(rendered)
 	}
-	if contentChanged && editorWasAtBottom {
+	if contentChanged && editorWasAtEnd {
 		m.preview.GotoBottom()
 	} else if contentChanged || scrollChanged {
 		m.syncPreviewScroll()
