@@ -672,3 +672,129 @@ func TestCtrlCCopiesAndClearsSelection(t *testing.T) {
 		t.Error("ctrl+c attempted to quit while copying selection")
 	}
 }
+
+func TestCreateNote(t *testing.T) {
+	storageDir := t.TempDir()
+
+	hash, filename, err := createNote(storageDir)
+	if err != nil {
+		t.Fatalf("createNote() returned error: %v", err)
+	}
+
+	wantFilename := filepath.Join(storageDir, hash+".md")
+	if filename != wantFilename {
+		t.Errorf("createNote() returned filename = %q, want %q", filename, wantFilename)
+	}
+
+	if _, err := os.Stat(filename); err != nil {
+		t.Fatalf("created note file does not exist: %v", err)
+	}
+
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("read created note file: %v", err)
+	}
+
+	if len(content) != 0 {
+		t.Errorf("created note file is not empty, length = %d", len(content))
+	}
+
+	secondHash, secondFilename, err := createNote(storageDir)
+	if err != nil {
+		t.Fatalf("createNote() returned error: %v", err)
+	}
+
+	if secondHash == hash {
+		t.Errorf("createNote() returned duplicate hash: %q", secondHash)
+	}
+
+	if secondFilename == filename {
+		t.Errorf("createNote() returned duplicate filename: %q", secondFilename)
+	}
+}
+
+func TestLoadInitialNoteWithoutArgs(t *testing.T) {
+	storageDir := t.TempDir()
+
+	hash, filename, content, err := loadInitialNote([]string{}, storageDir)
+	if err != nil {
+		t.Fatalf("loadInitialNote() returned error: %v", err)
+	}
+
+	if filepath.Dir(filename) != storageDir {
+		t.Errorf(
+			"note directory = %q, want %q",
+			filepath.Dir(filename),
+			storageDir,
+		)
+	}
+
+	if content != "" {
+		t.Errorf("content = %q, want empty string", content)
+	}
+
+	if hash == "" {
+		t.Error("hash is empty, expected a new note hash")
+	}
+
+	if filepath.Base(filename) != hash+".md" {
+		t.Errorf(
+			"filename = %q, want %q",
+			filepath.Base(filename),
+			hash+".md",
+		)
+	}
+}
+
+func TestLoadInitialNoteWithExistingFile(t *testing.T) {
+	storageDir := t.TempDir()
+	hash := "0123456789abcdef0123456789abcdef"
+	filename := filepath.Join(storageDir, hash+".md")
+
+	if err := os.WriteFile(filename, []byte("Hello"), 0o644); err != nil {
+		t.Fatalf("create note file: %v", err)
+	}
+
+	_, gotFilename, content, err := loadInitialNote([]string{hash}, storageDir)
+	if err != nil {
+		t.Fatalf("loadInitialNote() returned error: %v", err)
+	}
+
+	if gotFilename != filename {
+		t.Errorf("filename = %q, want %q", gotFilename, filename)
+	}
+
+	if content != "Hello" {
+		t.Errorf("content = %q, want %q", content, "Hello")
+	}
+}
+
+func TestLoadInitialNoteWithUnknownHash(t *testing.T) {
+	storageDir := t.TempDir()
+	hash := "0123456789abcdef0123456789abcdef"
+
+	_, _, _, err := loadInitialNote([]string{hash}, storageDir)
+	if err == nil {
+		t.Fatal("loadInitialNote() did not return error for unknown hash")
+	}
+
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error message = %q, want to contain 'not found'", err.Error())
+	}
+}
+
+func TestLoadInitialNotesRejectsInvalidHash(t *testing.T) {
+	storageDir := t.TempDir()
+
+	_, _, _, err := loadInitialNote(
+		[]string{".../outside"},
+		storageDir,
+	)
+	if err == nil {
+		t.Fatal("loadInitialNote() returned nil error for invalid hash")
+	}
+
+	if !strings.Contains(err.Error(), "invalid note hash") {
+		t.Errorf("error message = %q, want to contain 'invalid note hash'", err.Error())
+	}
+}

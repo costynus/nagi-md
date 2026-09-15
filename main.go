@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
@@ -479,24 +481,83 @@ func saveNote(filename, content string) tea.Cmd {
 	}
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: nmd <file>")
-		os.Exit(1)
+func noteStoreDir() string {
+	return filepath.Join(os.TempDir(), "nagi-md")
+}
+
+func createNote(storageDir string) (hash string, filename string, err error) {
+	if err := os.MkdirAll(storageDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("create note store dir: %w", err)
 	}
-	filename := os.Args[1]
-	content, err := os.ReadFile(filename)
+
+	for {
+		randomBytes := make([]byte, 16)
+		if _, err := rand.Read(randomBytes); err != nil {
+			return "", "", fmt.Errorf("generate random bytes: %w", err)
+		}
+		hash = hex.EncodeToString(randomBytes)
+		filename = filepath.Join(storageDir, hash+".md")
+
+		file, err := os.OpenFile(
+			filename,
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL,
+			0o600,
+		)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("create note file: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(filename)
+			return "", "", fmt.Errorf("close note file: %w", err)
+		}
+		return hash, filename, nil
+	}
+}
+
+func loadInitialNote(args []string, storageDir string) (hash, filename, content string, err error) {
+	if len(args) == 0 {
+		hash, filename, err = createNote(storageDir)
+		if err != nil {
+			return "", "", "", fmt.Errorf("create initial note: %w", err)
+		}
+	} else {
+		hash = args[0]
+		if len(hash) != 32 {
+			return "", "", "", fmt.Errorf("invalid note hash: %q", hash)
+		}
+		if _, err := hex.DecodeString(hash); err != nil {
+			return "", "", "", fmt.Errorf("invalid note hash: %q", hash)
+		}
+		hash = strings.ToLower(hash)
+		filename = filepath.Join(storageDir, hash+".md")
+	}
+	contentRaw, err := os.ReadFile(filename)
+	if os.IsNotExist(err) {
+		return "", "", "", fmt.Errorf("note %q not found: %w", hash, err)
+	}
+	if err != nil {
+		return "", "", "", fmt.Errorf("read initial note: %w", err)
+	}
+	return hash, filename, string(contentRaw), nil
+}
+
+func main() {
+	hash, filename, content, err := loadInitialNote(os.Args[1:], noteStoreDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
 	p := tea.NewProgram(
-		initModel(filename, string(content)),
+		initModel(filename, content),
 		tea.WithFilter(filterBlockedWheel),
 	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Println(hash)
 }
