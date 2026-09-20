@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,6 +19,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	glamour "charm.land/glamour/v2"
 	lipgloss "charm.land/lipgloss/v2"
+)
+
+const (
+	notesMaxCount   = 10
+	headerMaxLength = 64
 )
 
 type (
@@ -43,7 +49,18 @@ type (
 	}
 
 	autosaveTickMsg struct{}
+
+	note struct {
+		hash         string
+		path         string
+		header       string
+		modifiedTime time.Time
+	}
 )
+
+func (n note) String() string {
+	return fmt.Sprintf("[%s] %s -- %s", n.modifiedTime.Local().Format("2006-01-02 15:04:05"), n.hash, n.header)
+}
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
@@ -482,7 +499,12 @@ func saveNote(filename, content string) tea.Cmd {
 }
 
 func noteStoreDir() string {
-	return filepath.Join(os.TempDir(), "nagi-md")
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	return filepath.Join(dir, "nagi-md")
 }
 
 func createNote(storageDir string) (hash string, filename string, err error) {
@@ -544,7 +566,98 @@ func loadInitialNote(args []string, storageDir string) (hash, filename, content 
 	return hash, filename, string(contentRaw), nil
 }
 
+func getNoteHeader(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return truncateNoteHeader(line)
+		}
+	}
+	return "(untitled)"
+}
+
+func truncateNoteHeader(title string) string {
+	runes := []rune(title)
+	if len(runes) > headerMaxLength {
+		return string(runes[:headerMaxLength])
+	}
+	return title
+}
+
+func commandHandler(command string) {
+	switch command {
+	case "list":
+		storeDir := noteStoreDir()
+		files, err := os.ReadDir(storeDir)
+		if os.IsNotExist(err) {
+			fmt.Println("No notes found.")
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		var notes []note
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".md") {
+				hash := strings.TrimSuffix(file.Name(), ".md")
+				if len(hash) != 32 {
+					continue
+				}
+				if _, err := hex.DecodeString(hash); err != nil {
+					continue
+				}
+				info, err := file.Info()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+					os.Exit(1)
+				}
+				if !info.Mode().IsRegular() {
+					continue
+				}
+				notes = append(notes, note{
+					hash:         hash,
+					path:         filepath.Join(storeDir, file.Name()),
+					modifiedTime: info.ModTime(),
+				})
+			}
+		}
+		if len(notes) == 0 {
+			fmt.Println("No notes found.")
+			return
+		}
+		sort.Slice(notes, func(i, j int) bool {
+			if notes[i].modifiedTime.Equal(notes[j].modifiedTime) {
+				return notes[i].hash < notes[j].hash
+			}
+			return notes[i].modifiedTime.After(notes[j].modifiedTime)
+		})
+		if len(notes) > notesMaxCount {
+			notes = notes[:notesMaxCount]
+		}
+		for _, file := range notes {
+			content, err := os.ReadFile(file.path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			file.header = getNoteHeader(string(content))
+			fmt.Println(file)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+	}
+}
+
 func main() {
+	var command string
+	if len(os.Args) == 2 {
+		command = os.Args[1]
+	}
+	if command == "list" {
+		commandHandler(command)
+		return
+	}
 	hash, filename, content, err := loadInitialNote(os.Args[1:], noteStoreDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
