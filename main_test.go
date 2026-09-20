@@ -798,3 +798,28 @@ func TestLoadInitialNotesRejectsInvalidHash(t *testing.T) {
 		t.Errorf("error message = %q, want to contain 'invalid note hash'", err.Error())
 	}
 }
+
+func TestGetNoteHeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "empty note", content: "\n  \n", want: "(untitled)"},
+		{name: "first nonempty line", content: "\n# Plan\nText", want: "# Plan"},
+		{name: "heading marker preserved", content: "# Plan\nText", want: "# Plan"},
+		{name: "later heading ignored", content: "Introduction\n## Section", want: "Introduction"},
+		{name: "plain first line", content: "  Buy milk  \n", want: "Buy milk"},
+		{name: "empty heading", content: "# \n", want: "#"},
+		{name: "hashtag is not heading", content: "#todo", want: "#todo"},
+		{name: "unicode truncation", content: strings.Repeat("🙂", headerMaxLength+1), want: strings.Repeat("🙂", headerMaxLength)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getNoteHeader(tt.content); got != tt.want {
+				t.Errorf("getNoteHeader(%q) = %q, want %q", tt.content, got, tt.want)
+			}
+		})
+	}
+}
